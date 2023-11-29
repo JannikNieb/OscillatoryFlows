@@ -9,6 +9,7 @@ from torch.autograd import grad
 import uuid  # for generating random uuids
 import json # for saving the outputs in json files
 import matplotlib.pyplot as plt
+from matplotlib import cm
 from tqdm import tqdm  # for displaying progress bars in the training
 
 # Define a custom dataset that inherits from the Dataset class
@@ -61,6 +62,7 @@ class OscillatoryFlows:
         self.h = h
         self.data_size = data_size
         self.device = device
+        self.id = str(uuid.uuid1())  # custom uuid to identify the trained network (esp. for saving)
 
     def generate_samples(self, batch_size=0, scale=3):
         if batch_size == 0:
@@ -96,6 +98,14 @@ class OscillatoryFlows:
             h: float):
         return torch.flatten(self.compute_weight(x) * self.compute_oscil(x, h))
 
+    def compute_integral_analytic(self,
+            h: float):
+        """
+        Compute the analytical intergal value of f: I = e^(-h^2 / 2)
+        :param h:
+        :return:
+        """
+        return np.exp(-h**2 / 2)
     def training(self,
             train_loader,
             model,
@@ -145,9 +155,12 @@ class OscillatoryFlows:
            model,
            learning_rate: float,
            dimensions: list,
-           plot_results: list) -> dict:
+           plot_results: list,
+           scale: int,
+           samples: list) -> dict:
         """
 
+        :param samples: original sample distribution in range (-scale, scale)
         :param path: relative path to the data folder
         :param loss:
         :param model:
@@ -155,29 +168,37 @@ class OscillatoryFlows:
         :param dimensions: dimension vector of the layers (including input and output layer)
         :param plot_results: array with some intermediate function samples.
             The first entry is the initial sample distribution
+        :param scale: length of the sampled domain
         :return:
         """
-        id = str(uuid.uuid1())
+        id = self.id
         torch.save(model, path + '/' + id)
+        ana_int = self.compute_integral_analytic(self.h)
+        calc_int = 2 * scale * np.mean(plot_results[0])
         save_dict = {
             'id': id,
             'loss': loss[-1],
+            'integral result': round(2 * scale * np.mean(plot_results[-1]), 6),
+            'original integral approx': round(calc_int, 6),
+            'relative error': round((calc_int - ana_int) / ana_int, 2),
             'loss history': loss,
             'learning rate': learning_rate,
             'number of layers': len(dimensions) - 2,
             'layer dimensions': dimensions,
             'learned graph': plot_results,
-            'number of samples': len(plot_results[0])}
+            'number of samples': len(plot_results[0]),
+            'samples': samples}
         with open(path + '/' + id + '.json', 'w', encoding='utf-8') as file:
             json.dump(save_dict, file)
         return save_dict
 
-    def plot_results(self, path, id):
+    def plot_results(self, path):
 
         # load data from json file
-        with open(path + '/' + id + '.json', 'r', encoding='utf-8') as file:
+        with open(path + '/' + self.id + '.json', 'r', encoding='utf-8') as file:
             data_dict = json.load(file)
 
+        cmap = cm.get_cmap('inferno', int(round(len(data_dict['learned graph'])*1.3)))
         fig, (ax1, ax2) = plt.subplots(1, 2)
 
         ax1.plot(data_dict['loss history'])
@@ -188,6 +209,6 @@ class OscillatoryFlows:
         for i, graph in enumerate(data_dict['learned graph']):
             if i==0:
                 graph = self.f(torch.tensor(graph), self.h).numpy()
-            ax2.plot(data_dict['learned graph'][0], graph, label=f"epoch {i * 10}")
-        ax2.legend()
+            ax2.plot(data_dict['samples'], graph, label=f"epoch {i * 10}", c=cmap(i))
+        # ax2.legend()
         return fig
