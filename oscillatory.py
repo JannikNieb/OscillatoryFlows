@@ -8,6 +8,8 @@ from torch.utils.data import Dataset, DataLoader
 from torch.autograd import grad
 import uuid  # for generating random uuids
 import json # for saving the outputs in json files
+import matplotlib.pyplot as plt
+from tqdm import tqdm  # for displaying progress bars in the training
 
 # Define a custom dataset that inherits from the Dataset class
 class CustomDataset(Dataset):
@@ -23,18 +25,15 @@ class CustomDataset(Dataset):
 
 
 class FeedForwardNet(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, layer_dimensions):
         super(FeedForwardNet, self).__init__()
 
-        self.linear_relu_stack = nn.Sequential(
-            nn.Linear(in_features=input_dim, out_features=hidden_dim),
-            nn.ReLU(),
-            nn.Linear(in_features=hidden_dim, out_features=hidden_dim),
-            nn.ReLU(),
-            nn.Linear(in_features=hidden_dim, out_features=hidden_dim),
-            nn.ReLU(),
-            nn.Linear(in_features=hidden_dim, out_features=output_dim),
-        )
+        layers = []
+        for i in range(len(layer_dimensions) - 1):
+            layers.append(nn.Linear(in_features=layer_dimensions[i], out_features=layer_dimensions[i+1]))
+            layers.append(nn.ReLU())
+
+        self.linear_relu_stack = nn.Sequential(*layers)
 
     def forward(self, x):
         return self.linear_relu_stack(x)
@@ -104,7 +103,7 @@ class OscillatoryFlows:
             loss_criterion):
 
         model.train()  # set model to training mode (unnecessary here, but good practice)
-        for i, (inputs, labels) in enumerate(train_loader):
+        for i, (inputs, labels) in enumerate(tqdm(train_loader)):
             optimizer.zero_grad()  # Reset the gradients from the previous iteration
             outputs = model(inputs[:,None])
             grads, = grad(outputs, inputs, grad_outputs=torch.ones_like(outputs), create_graph=True)
@@ -139,3 +138,56 @@ class OscillatoryFlows:
         test_loss /= num_batches
         print(f"Test Error: \n Avg loss: {test_loss:>8f} \n")
         return test_loss
+
+    def save_model(self,
+           path: str,
+           loss: list,
+           model,
+           learning_rate: float,
+           dimensions: list,
+           plot_results: list) -> dict:
+        """
+
+        :param path: relative path to the data folder
+        :param loss:
+        :param model:
+        :param learning_rate:
+        :param dimensions: dimension vector of the layers (including input and output layer)
+        :param plot_results: array with some intermediate function samples.
+            The first entry is the initial sample distribution
+        :return:
+        """
+        id = str(uuid.uuid1())
+        torch.save(model, path + '/' + id)
+        save_dict = {
+            'id': id,
+            'loss': loss[-1],
+            'loss history': loss,
+            'learning rate': learning_rate,
+            'number of layers': len(dimensions) - 2,
+            'layer dimensions': dimensions,
+            'learned graph': plot_results,
+            'number of samples': len(plot_results[0])}
+        with open(path + '/' + id + '.json', 'w', encoding='utf-8') as file:
+            json.dump(save_dict, file)
+        return save_dict
+
+    def plot_results(self, path, id):
+
+        # load data from json file
+        with open(path + '/' + id + '.json', 'r', encoding='utf-8') as file:
+            data_dict = json.load(file)
+
+        fig, (ax1, ax2) = plt.subplots(1, 2)
+
+        ax1.plot(data_dict['loss history'])
+        ax1.set_xlabel('epoch')
+        ax1.set_ylabel('training loss')
+
+        # ax2.plot(data_dict[0], self.f(data_dict[0], self.h), label=str(i))
+        for i, graph in enumerate(data_dict['learned graph']):
+            if i==0:
+                graph = self.f(torch.tensor(graph), self.h).numpy()
+            ax2.plot(data_dict['learned graph'][0], graph, label=f"epoch {i * 10}")
+        ax2.legend()
+        return fig
