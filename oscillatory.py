@@ -12,6 +12,11 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 from tqdm import tqdm  # for displaying progress bars in the training
 
+# ray for parameter optimization
+# from ray import tune
+# from ray.air import Checkpoint, session
+# from ray.tune.schedulers import ASHAScheduler
+
 # Define a custom dataset that inherits from the Dataset class
 class CustomDataset(Dataset):
     def __init__(self, data, labels, weight_labels=[1]):
@@ -176,7 +181,7 @@ class OscillatoryFlows:
         integral_estimate /= num_batches
         test_loss /= num_batches
         print(f"Test Error: \n Avg loss: {test_loss:>8f} \n")
-        return test_loss, prediction, float(integral_estimate)
+        return float(test_loss), prediction, float(integral_estimate)
 
     def save_model(self,
            path: str,
@@ -189,7 +194,8 @@ class OscillatoryFlows:
            samples: list,
            epochs: int,
            time: str,
-           integral_estimates: list) -> dict:
+           integral_estimates: list,
+           id=None) -> dict:
         """
 
         :param samples: original sample distribution in range (-scale, scale)
@@ -203,7 +209,9 @@ class OscillatoryFlows:
         :param scale: length of the sampled domain
         :return:
         """
-        id = self.id
+        if id == None:
+            id = self.id
+
         torch.save(model, path + '/' + id)
         ana_int = self.compute_integral_analytic(self.h)
         calc_int = float(integral_estimates[-1])
@@ -221,20 +229,22 @@ class OscillatoryFlows:
             'distributing': "normal" if self.normal_dist else "uniform",
             'epochs': epochs,
             'time': time,
-            'seed': self.seed,
+            'seed': str(self.seed),
 
             'integral history': list(integral_estimates),
             'loss history': loss,
-            'learned graph': plot_results,
-            'samples': samples}
+            'learned graph': list(plot_results),
+            'samples': list(samples)}
         with open(path + '/' + id + '.json', 'w', encoding='utf-8') as file:
             json.dump(save_dict, file)
         return save_dict
 
-    def plot_results(self, path):
+    def plot_results(self, path, id=None):
+        if id == None:
+            id = self.id
 
         # load data from json file
-        with open(path + '/' + self.id + '.json', 'r', encoding='utf-8') as file:
+        with open(path + '/' + id + '.json', 'r', encoding='utf-8') as file:
             data_dict = json.load(file)
 
         cmap = cm.get_cmap('inferno', int(round(len(data_dict['learned graph'])*1.3)))
