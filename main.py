@@ -20,8 +20,8 @@ from oscillatory import CustomLoss
 
 # torch.set_float32_matmul_precision("medium")  # decrease precision of matrix multiplications to increase speed
 
-_h = 4
-scale = 3
+_h = 4.
+scale = 3.
 
 data_size = 10 ** 5  # Replace with the desired number of data
 batch_size = 10 ** 3  # Define the batch size
@@ -31,7 +31,7 @@ test_batch_size = int(batch_size * (test_size / data_size))
 
 dimensions = [1, 50, 1]
 
-num_epochs = 100
+num_epochs = 20
 learning_rate = 1
 
 data_folder = 'data/trash'
@@ -54,7 +54,7 @@ total_plot_hist = []
 total_integral_hist = []
 total_id_list = []
 
-for i in range(10):
+for i in range(1):
 
     if len(sys.argv) > 1:
         id = sys.argv[1]
@@ -68,7 +68,7 @@ for i in range(10):
 
 
     # Define your custom dataset using the data and labels
-    x_train = net.generate_samples(data_size)
+    """x_train = net.generate_samples(data_size)
     x_test = net.generate_samples(test_size)
     x_test_large = net.generate_samples(10**8)
 
@@ -107,11 +107,10 @@ for i in range(10):
     start_time = time.time()
     for t in range(num_epochs):
         print(f"Epoch {t+1}\n-------------------------------")
-        model, loss = net.training(train_loader, model, optimizer, loss_criterion)
+        model, loss = net.training_step(train_loader, model, optimizer, loss_criterion)
         train_hist[t] = torch.tensor(loss)
         test_hist[t], prediction, integral_hist[t] = net.testing(test_loader, model, loss_criterion, scale)
-        lr_scheduler.step(test_hist[-1])  # adjust learning rate
-        print(optimizer.param_groups[0]["lr"])
+        lr_scheduler.step(test_hist[-1])  # adjust learning rate       print(optimizer.param_groups[0]["lr"])
         if t % 10 == 0 and t > 1:  # save model every 10 epochs
             outputs = model(x_test_sort[:, None])
             grads, = grad(outputs, x_test_sort, grad_outputs=torch.ones_like(outputs), create_graph=True)
@@ -122,8 +121,8 @@ for i in range(10):
             net.save_model(data_folder, test_hist.tolist(), model, learning_rate, dimensions, learned_graph, test_size,
                            x_test_sort.detach().cpu().tolist(), t,
                            f"{int(round((time.time() - start_time) / 60))} min", integral_hist)
-    training_time = int(round((time.time() - start_time) / 60))
-    print(f"time for training: {training_time}min")
+    training_time = int(round((time.time() - start_time) / 60))"""
+    # print(f"time for training: {training_time}min")
 
 
     integral_hist[-1] = net.testing(large_test_loader, model, loss_criterion, scale)[-1]
@@ -133,18 +132,18 @@ for i in range(10):
                            x_test_sort.detach().cpu().tolist(), num_epochs, training_time, integral_hist)
 
     print(saved['id'])
-    # fig = net.plot_results(data_folder)
-    # plt.show()
+    fig = net.plot_results(data_folder)
+    plt.show()
 
     total_id_list.append(id)
     total_integral_hist.append(float(integral_hist[-1]))
     total_plot_hist.append(list(learned_graph[-1]))
     total_loss_hist.append(float(test_hist[-1]))
 
-net.save_model(data_folder, list(total_loss_hist), model, learning_rate, dimensions, list(total_plot_hist), test_size,
-               x_test_sort.detach().cpu().tolist(), num_epochs,
-               f"10 models", list(total_integral_hist), 'total train 1')
+# net.save_model(data_folder, list(total_loss_hist), model, learning_rate, dimensions, list(total_plot_hist), test_size,
+#                x_test_sort.detach().cpu().tolist(), num_epochs,
+#                f"10 models", list(total_integral_hist), 'total train 1')
 
-fig = net.plot_results(data_folder, id='total train 1')
-plt.show()
+# fig = net.plot_results(data_folder, id='total train 1')
+# plt.show()
 # grads, = grad(outputs, x_test_sort, grad_outputs=torch.ones_like(outputs), create_graph=True)

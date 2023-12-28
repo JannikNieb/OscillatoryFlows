@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as funct  # contains useful functions for machine learning
-from torch.utils.data import Dataset, DataLoader
-from torch.autograd import grad
-import uuid  # for generating random uuids
 import json # for saving the outputs in json files
 import matplotlib.pyplot as plt
-from matplotlib import cm
+from matplotlib import cm  # colormaps in plots
 from tqdm import tqdm  # for displaying progress bars in the training
+import time
+
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+from torch.autograd import grad
+
+import uuid  # for generating random uuids
+
 
 # ray for parameter optimization
 # from ray import tune
@@ -64,12 +67,13 @@ class CustomLoss(nn.Module):
 
 
 class OscillatoryFlows:
-    def __init__(self, h, device, id, normal_dist=False):
+    def __init__(self, h, device, id, dimensions, normal_dist=False):
         self.h = h
         self.device = device
         self.id = id  # custom uuid to identify the trained network (esp. for saving)
         self.normal_dist = normal_dist
         self.seed = torch.seed()
+        self.dimensions = dimensions
 
     def generate_samples(self, sample_size, scale=3):
         """
@@ -121,13 +125,15 @@ class OscillatoryFlows:
         return np.exp(-h**2 / 2)
 
 
-    def training(self,
-            train_loader,
-            model,
-            optimizer,
-            loss_criterion):
+    def training_step(self,
+                      train_loader,
+                      model,
+                      optimizer,
+                      loss_criterion):
+
 
         model.train()  # set model to training mode (unnecessary here, but good practice)
+
         for i, (inputs, labels, weight_labels) in enumerate(tqdm(train_loader)):
             optimizer.zero_grad()  # Reset the gradients from the previous iteration
             # with torch.autocast(device_type=self.device):
@@ -148,8 +154,54 @@ class OscillatoryFlows:
             loss.backward()  # Calculate the gradient with respect to each parameter
             optimizer.step()  # Adjust the network parameters using the gradients calculated by .backward()
         print(f"training loss: {loss.detach():>7f}")
+
         return model, loss.cpu().detach().numpy()
 
+    def run(self, train_loader,
+                 test_loader,
+                 model,
+                 optimizer,
+                 loss_criterion,
+                 lr_scheduler,
+                 num_epochs: int,
+                 scale: float,
+                 data_folder):
+
+        x_test = test_loader.dataset.data
+        print(test_loader.dataset.shape)
+        x_test_sort = x_test[:test_batch_size].sort()[0]
+        print(x_test_sort)
+
+        learning_rate = lr_scheduler.get_lr()  # get the learning rate as a parameter from the lr scheduler
+        test_hist = torch.empty(num_epochs, device=self.device)
+        train_hist = torch.empty(num_epochs, device=self.device)
+        integral_hist = torch.empty(num_epochs, device=self.device).tolist()
+        results = []  # array containing all integral estimates
+        learned_graph = [self.f(x_test_sort.detach().cpu(), self.h).tolist()]  # array containing all trained sample data
+
+        start_time = time.time()
+        for t in range(num_epochs):
+            print(f"Epoch {t + 1}\n-------------------------------")
+            model, loss = self.training_step(train_loader, model, optimizer, loss_criterion)
+            train_hist[t] = torch.tensor(loss)
+            test_hist[t], prediction, integral_hist[t] = self.testing(test_loader, model, loss_criterion, scale)
+            lr_scheduler.step(test_hist[-1])  # adjust learning rate       print(optimizer.param_groups[0]["lr"])
+            if t % 10 == 0 and t > 1:  # save model every 10 epochs
+                outputs = model(x_test_sort[:, None])
+                grads, = grad(outputs, x_test_sort, grad_outputs=torch.ones_like(outputs), create_graph=True)
+                prediction = 0.5 * (
+                            self.f(x_test_sort, self.h) + torch.flatten(self.f(outputs.detach(), self.h)) * torch.abs(grads))
+                learned_graph.append(prediction.detach().cpu().numpy().tolist())
+                # ax2.plot(x_test_sort.detach().cpu(), prediction.detach().cpu(), label=f"epoch {t}")
+                results.append((2 * scale * torch.mean(prediction)).detach().cpu())
+                self.save_model(data_folder, test_hist.tolist(), model, learning_rate, self.dimensions, learned_graph,
+                               test_size,
+                               x_test_sort.detach().cpu().tolist(), t,
+                               f"{int(round((time.time() - start_time) / 60))} min", integral_hist)
+        training_time = int(round((time.time() - start_time) / 60))
+        saved = self.save_model(data_folder, test_hist.tolist(), model, learning_rate, dimensions, learned_graph, scale,
+                               x_test_sort.detach().cpu().tolist(), num_epochs, training_time, integral_hist)
+        print(f"time for training: {training_time}min")
 
     def testing(self, test_loader, model, loss_criterion, scale):
         model.eval()  # Set the model to evaluation mode (unnecessary here, but good practice)
@@ -162,8 +214,9 @@ class OscillatoryFlows:
         # with torch.no_grad():
         for inputs, labels, weight_labels in tqdm(test_loader):
             # inputs.requires_grad = True  # Set requires_grad property of the tensors, to use autograd on them later
-            outputs = model(inputs[:, None])
-            grads, = grad(outputs, inputs, grad_outputs=torch.ones_like(outputs), create_graph=True)
+            x_test_sort = inputs.sort()[0]
+            outputs = model(x_test_sort[:, None])
+            grads, = grad(outputs, x_test_sort, grad_outputs=torch.ones_like(outputs), create_graph=True)
             if self.normal_dist:
                 pred = self.compute_oscil(outputs, self.h)
                 weight = torch.exp(0.5 * inputs ** 2 - 0.5 * outputs ** 2)
@@ -174,8 +227,8 @@ class OscillatoryFlows:
                 pred = self.f(outputs, self.h)
                 test_loss += loss_criterion(pred, labels, grads).item()
                 # x_test_sort = test_loader[0][0].sort()[0]
-                prediction = 0.5 * (self.f(inputs.sort()[0], self.h) +
-                                torch.flatten(self.f(outputs.sort()[0].detach(), self.h)) * torch.abs(grads.sort()[0]))
+                prediction = 0.5 * (self.f(x_test_sort, self.h) +
+                                torch.flatten(self.f(outputs.detach(), self.h)) * torch.abs(grads))
                 integral_estimate += 2 * scale * torch.mean(prediction.detach().cpu())
 
         integral_estimate /= num_batches
