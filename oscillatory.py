@@ -168,11 +168,10 @@ class OscillatoryFlows:
                  data_folder):
 
         x_test = test_loader.dataset.data
-        print(test_loader.dataset.shape)
+        test_batch_size = int(len(x_test) / len(test_loader))  # test batch size = data size / number of batch iterations
         x_test_sort = x_test[:test_batch_size].sort()[0]
-        print(x_test_sort)
 
-        learning_rate = lr_scheduler.get_lr()  # get the learning rate as a parameter from the lr scheduler
+        learning_rate = optimizer.param_groups[0]["lr"]  # get the learning rate as a parameter from the lr scheduler
         test_hist = torch.empty(num_epochs, device=self.device)
         train_hist = torch.empty(num_epochs, device=self.device)
         integral_hist = torch.empty(num_epochs, device=self.device).tolist()
@@ -185,27 +184,31 @@ class OscillatoryFlows:
             model, loss = self.training_step(train_loader, model, optimizer, loss_criterion)
             train_hist[t] = torch.tensor(loss)
             test_hist[t], prediction, integral_hist[t] = self.testing(test_loader, model, loss_criterion, scale)
-            lr_scheduler.step(test_hist[-1])  # adjust learning rate       print(optimizer.param_groups[0]["lr"])
+            lr_scheduler.step(test_hist[-1])  # adjust learning rate
+            print(optimizer.param_groups[0]["lr"])
             if t % 10 == 0 and t > 1:  # save model every 10 epochs
                 outputs = model(x_test_sort[:, None])
                 grads, = grad(outputs, x_test_sort, grad_outputs=torch.ones_like(outputs), create_graph=True)
-                prediction = 0.5 * (
-                            self.f(x_test_sort, self.h) + torch.flatten(self.f(outputs.detach(), self.h)) * torch.abs(grads))
+                prediction = 0.5 * (self.f(x_test_sort, self.h) +
+                                    torch.flatten(self.f(outputs.detach(), self.h)) * torch.abs(grads))
                 learned_graph.append(prediction.detach().cpu().numpy().tolist())
                 # ax2.plot(x_test_sort.detach().cpu(), prediction.detach().cpu(), label=f"epoch {t}")
                 results.append((2 * scale * torch.mean(prediction)).detach().cpu())
                 self.save_model(data_folder, test_hist.tolist(), model, learning_rate, self.dimensions, learned_graph,
-                               test_size,
-                               x_test_sort.detach().cpu().tolist(), t,
+                               len(x_test), x_test_sort.detach().cpu().tolist(), t,
                                f"{int(round((time.time() - start_time) / 60))} min", integral_hist)
         training_time = int(round((time.time() - start_time) / 60))
-        saved = self.save_model(data_folder, test_hist.tolist(), model, learning_rate, dimensions, learned_graph, scale,
+        saved = self.save_model(data_folder, test_hist.tolist(), model, learning_rate, self.dimensions, learned_graph, scale,
                                x_test_sort.detach().cpu().tolist(), num_epochs, training_time, integral_hist)
         print(f"time for training: {training_time}min")
+        # integral_hist[-1] = net.testing(large_test_loader, model, loss_criterion, scale)[-1]
+        # print(integral_hist[-1])
+        # saved = net.save_model(data_folder, test_hist.tolist(), model, learning_rate, dimensions, learned_graph, scale,
+        #                        x_test_sort.detach().cpu().tolist(), num_epochs, training_time, integral_hist)
+        return model, saved
 
     def testing(self, test_loader, model, loss_criterion, scale):
         model.eval()  # Set the model to evaluation mode (unnecessary here, but good practice)
-        size = len(test_loader.dataset)
         num_batches = len(test_loader)
         test_loss, integral_estimate = 0, 0
 
@@ -277,7 +280,7 @@ class OscillatoryFlows:
             'relative error': round((calc_int - ana_int) / ana_int, 2),
             'learning rate': learning_rate,
             # 'number of layers': len(dimensions) - 2,
-            'layer dimensions': dimensions,
+            'layer dimensions': self.dimensions,
             'number of (test) samples': len(plot_results[0]),
             'distributing': "normal" if self.normal_dist else "uniform",
             'epochs': epochs,
