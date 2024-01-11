@@ -5,11 +5,12 @@ from oscillatory import OscillatoryFlows
 
 path = './data/trash'
 if len(sys.argv) > 1:
-    id = sys.argv[1]
+    ids = sys.argv[1:]
 else:
-    id = input("Enter id of the model to be ploted: ")
+    ids = list(input("Enter id of the model to be ploted: ").split())
+
+print(ids)
 
 net = OscillatoryFlows(4, 'cpu', id)
-
-fig = net.plot_results(path)
+fig = net.plot_results(path, ids)
 plt.show()

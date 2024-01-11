@@ -31,8 +31,8 @@ test_batch_size = int(batch_size * (test_size / data_size))
 
 dimensions = [1, 50, 1]
 
-num_epochs = 100
-learning_rate = 1
+num_epochs = 11
+learning_rate = 0.1
 
 data_folder = 'data/trash'
 
@@ -49,12 +49,7 @@ device = (
 )
 print(f"Using {device} device")
 
-total_loss_hist = []
-total_plot_hist = []
-total_integral_hist = []
-total_id_list = []
-
-for i in range(10):
+for i in range(1):
 
     if len(sys.argv) > 1:
         id = sys.argv[1]
@@ -133,18 +128,6 @@ for i in range(10):
                            x_test_sort.detach().cpu().tolist(), num_epochs, training_time, integral_hist)
 
     print(saved['id'])
-    # fig = net.plot_results(data_folder)
+    fig = net.plot_results(data_folder)
     # plt.show()
 
-    total_id_list.append(id)
-    total_integral_hist.append(float(integral_hist[-1]))
-    total_plot_hist.append(list(learned_graph[-1]))
-    total_loss_hist.append(float(test_hist[-1]))
-
-net.save_model(data_folder, list(total_loss_hist), model, learning_rate, dimensions, list(total_plot_hist), test_size,
-               x_test_sort.detach().cpu().tolist(), num_epochs,
-               f"10 models", list(total_integral_hist), 'total train 1')
-
-fig = net.plot_results(data_folder, id='total train 1')
-plt.show()
-# grads, = grad(outputs, x_test_sort, grad_outputs=torch.ones_like(outputs), create_graph=True)

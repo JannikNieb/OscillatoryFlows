@@ -69,7 +69,8 @@ class OscillatoryFlows:
         self.device = device
         self.id = id  # custom uuid to identify the trained network (esp. for saving)
         self.normal_dist = normal_dist
-        self.seed = torch.seed()
+        self.seed = torch.manual_seed(0)
+        # torch.use_deterministic_algorithms(True)
 
     def generate_samples(self, sample_size, scale=3):
         """
@@ -239,27 +240,41 @@ class OscillatoryFlows:
             json.dump(save_dict, file)
         return save_dict
 
-    def plot_results(self, path, id=None):
-        if id == None:
-            id = self.id
+    def plot_results(self, path, ids=None):
+        if ids == None:
+            ids = [self.id]
 
-        # load data from json file
-        with open(path + '/' + id + '.json', 'r', encoding='utf-8') as file:
-            data_dict = json.load(file)
-
-        cmap = cm.get_cmap('inferno', int(round(len(data_dict['learned graph'])*1.3)))
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
+        for id in ids:
 
-        ax1.plot(data_dict['loss history'])
-        ax1.set_xlabel('epoch')
-        ax1.set_ylabel('training loss')
+            # load data from json file
+            with open(path + '/' + id + '.json', 'r', encoding='utf-8') as file:
+                data_dict = json.load(file)
 
-        # ax2.plot(data_dict[0], self.f(data_dict[0], self.h), label=str(i))
-        for i, graph in enumerate(data_dict['learned graph']):
-            ax2.plot(data_dict['samples'], graph, label=f"epoch {i * 10}", c=cmap(i))
-        # ax2.legend()
+            cmap = cm.get_cmap('inferno', int(round(len(data_dict['learned graph'])*1.3)))
 
-        ax3.plot(data_dict['integral history'])
-        ax3.hlines(self.compute_integral_analytic(self.h), 0, len(data_dict['integral history']), color='grey')
+            ax1.plot(data_dict['loss history'], label=id)
+            ax1.set_xlabel('epoch')
+            ax1.set_ylabel('training loss')
 
+            # ax2.plot(data_dict[0], self.f(data_dict[0], self.h), label=str(i))
+
+            if len(ids) == 1:
+                for i, graph in enumerate(data_dict['learned graph']):
+                    ax2.plot(data_dict['samples'], graph, label=f"epoch {i * 10}", c=cmap(i))
+            else:
+                ax2.plot(data_dict['samples'], data_dict['learned graph'][-1], label=id)
+                ax2.legend()
+
+            ax3.plot(data_dict['integral history'], label=id)
+            ax3.hlines(self.compute_integral_analytic(self.h), 0, len(data_dict['integral history']), color='grey')
+            ax3.set_xlabel('epoch')
+            ax3.set_ylabel('MC intergal estimate')
+
+            # add id labels, if multiple ids are in one plot
+            if len(ids) > 1:
+                ax1.legend()
+                ax3.legend()
+
+        fig.suptitle(ids)
         return fig
