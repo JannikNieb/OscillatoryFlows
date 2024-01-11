@@ -12,6 +12,11 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torch.autograd import grad
 
+# ray for parameter optimization
+from ray import train, tune
+# from ray.air import Checkpoint, session
+from ray.tune.schedulers import ASHAScheduler
+
 import uuid  # for generating random uuids
 
 
@@ -160,10 +165,11 @@ class OscillatoryFlows:
     def run(self, train_loader,
                  test_loader,
                  model,
-                 optimizer,
+                 learning_rate,
                  loss_criterion,
-                 lr_scheduler,
                  num_epochs: int,
+                 optimizer,
+                 lr_scheduler,
                  scale: float,
                  data_folder):
 
@@ -171,7 +177,6 @@ class OscillatoryFlows:
         test_batch_size = int(len(x_test) / len(test_loader))  # test batch size = data size / number of batch iterations
         x_test_sort = x_test[:test_batch_size].sort()[0]
 
-        learning_rate = optimizer.param_groups[0]["lr"]  # get the learning rate as a parameter from the lr scheduler
         test_hist = torch.empty(num_epochs, device=self.device)
         train_hist = torch.empty(num_epochs, device=self.device)
         integral_hist = torch.empty(num_epochs, device=self.device).tolist()
@@ -184,9 +189,16 @@ class OscillatoryFlows:
             model, loss = self.training_step(train_loader, model, optimizer, loss_criterion)
             train_hist[t] = torch.tensor(loss)
             test_hist[t], prediction, integral_hist[t] = self.testing(test_loader, model, loss_criterion, scale)
-            lr_scheduler.step(test_hist[-1])  # adjust learning rate
+
+
+
+            # optimization of hyperparameters
+            train.report({'training loss': float(test_hist[-1])})  # report training loss to ray tune
+            # lr_scheduler.step(test_hist[-1])  # adjust learning rate
             print(optimizer.param_groups[0]["lr"])
-            if t % 10 == 0 and t > 1:  # save model every 10 epochs
+
+            # save model every 10 epochs
+            if t % 10 == 0 and t > 1:
                 outputs = model(x_test_sort[:, None])
                 grads, = grad(outputs, x_test_sort, grad_outputs=torch.ones_like(outputs), create_graph=True)
                 prediction = 0.5 * (self.f(x_test_sort, self.h) +
@@ -205,7 +217,7 @@ class OscillatoryFlows:
         # print(integral_hist[-1])
         # saved = net.save_model(data_folder, test_hist.tolist(), model, learning_rate, dimensions, learned_graph, scale,
         #                        x_test_sort.detach().cpu().tolist(), num_epochs, training_time, integral_hist)
-        return model, saved
+        return model , saved
 
     def testing(self, test_loader, model, loss_criterion, scale):
         model.eval()  # Set the model to evaluation mode (unnecessary here, but good practice)
